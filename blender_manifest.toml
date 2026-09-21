@@ -1,0 +1,24 @@
+schema_version = "1.0.0"
+id = "system_desktop_menu"
+version = "1.0.0"
+name = "Lancher Entry and Desktop Icon"
+tagline = "Launcher menu, Desktop icon, and file associations"
+maintainer = "Mathias Panzenböck"
+type = "add-on"
+
+license = ["SPDX:GPL-3.0-or-later"]
+blender_version_min = "4.2.0"
+website = "https://github.com/panzi/blender-desktop-menu#readme"
+
+[permissions]
+files = "Create files and execute scripts"
+
+[build]
+paths_exclude_pattern = [
+    "/.git/",
+    "/tmp/",
+    "__pycache__/",
+    "*.png",
+    "*.zip",
+    ".*",
+]

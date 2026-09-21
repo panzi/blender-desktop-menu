@@ -3,5 +3,6 @@
 .*
 *.pyo
 *.pyc
+*.zip
 __pycache__
 !.gitignore
