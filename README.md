@@ -7,7 +7,7 @@ just unzipped Blender from the download and still want these things enabled.
 Supported platforms:
 
 * [x] Linux with installed XDG tools
-* [ ] Windows
+* [x] Windows **only tested via Wine on Linux!**
 * [ ] macOS
 
 Pull requests for Windows and macOS support are welcome.

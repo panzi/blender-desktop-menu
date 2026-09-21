@@ -39,11 +39,13 @@ def xdg_quote_exec(text: str) -> str:
     return f'"{esc_text}"'
 
 # TODO: [x] install menu
-# TODO: [ ] install icon for theme. doesn't work? might need restart?
+# TODO: [x] install icon for theme. needs Desktop restart sometimes.
 # TODO: [x] install desktop icon
 # TODO: [x] install mime type (file type association)
 # TODO: [x] uninstall option
 # TODO: [x] version suffix option
+# TODO: [x] Windows support (only tested in Wine on Linux)
+# TODO: [ ] macOS support
 
 _MIME_XML = '''\
 <?xml version="1.0" encoding="utf-8"?>
@@ -54,6 +56,40 @@ _MIME_XML = '''\
     <glob pattern="*.BLEND"/>
     <glob pattern="*.blender"/>
 </mime-type>
+'''
+
+_SHORTCUT_VBS = '''\
+On Error Resume Next
+
+Set FSO = CreateObject("Scripting.FileSystemObject")
+Set StdErr = FSO.CreateTextFile("stderr.txt", True, True)
+
+If WScript.Arguments.Count <> 2 Then
+    StdErr.WriteLine("Error: Illegal number of arguments.")
+    StdErr.Close()
+    WScript.Quit(1)
+End If
+
+TargetPath = FSO.GetAbsolutePathName(WScript.Arguments(0))
+WorkingDirectory = FSO.GetParentFolderName(TargetPath)
+Set shortcut = CreateObject("WScript.Shell").CreateShortcut(WScript.Arguments(1))
+shortcut.TargetPath = TargetPath
+shortcut.WorkingDirectory = WorkingDirectory
+shortcut.Save()
+
+If Err.Number <> 0 Then
+    StdErr.WriteLine("Error: " & Err.Number)
+    If Err.Description <> "" Then
+        StdErr.WriteLine(Err.Description)
+    End If
+    If Err.Source <> "" Then
+        StdErr.WriteLine(Err.Source)
+    End If
+    StdErr.Close()
+    WScript.Quit(1)
+End If
+
+StdErr.Close()
 '''
 
 _SYSTEM = platform.system()
@@ -156,7 +192,9 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
 
         with TemporaryDirectory() as tmpdir:
             if install_icon:
-                icon_dir = Path.home().joinpath('.local', 'share', 'icons', 'hicolor', '48x48', 'apps')
+                XDG_DATA_HOME = os.environ.get("XDG_DATA_HOME")
+                share_dir = Path(XDG_DATA_HOME) if XDG_DATA_HOME else Path.home().joinpath('.local', 'share')
+                icon_dir = share_dir.joinpath('icons', 'hicolor', 'scalable', 'apps')
 
                 if uninstall:
                     icon_dir.joinpath('blender.svg').unlink(missing_ok=True)
@@ -170,7 +208,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
                     if not self._run([xdg_icon_ressource, 'forceupdate', '--theme', 'hicolor', '--mode', 'user']):
                         return {'CANCELLED'}
                 else:
-                    self.report({'INFO'}, 'xdg-icon-ressource not found. You might need to refresh your icon theme through your desktop environment.')
+                    self.report({'WARNING'}, 'xdg-icon-ressource not found. You might need to refresh your icon theme through your desktop environment.')
 
                 things.append('icon')
 
@@ -199,7 +237,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
                             tmp_fp.write(exec_line)
 
                     except FileNotFoundError as exc:
-                        self.report({'ERROR'}, f'{exc.filename or blender_desktop} not found.')
+                        self.report({'ERROR'}, f'{exc.filename or blender_desktop} not found!')
                         return {'CANCELLED'}
 
                 action = 'uninstall' if uninstall else 'install'
@@ -251,12 +289,13 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
 
         return {'FINISHED'}
 
-    def _run(self, cmd: list[str], path: str|None=None) -> bool:
+    def _run(self, cmd: list[str], path: str|None=None, cwd: str|None=None) -> bool:
         try:
             check_output(
                 cmd,
                 stderr=PIPE,
                 env={ **os.environ, 'PATH': path } if path else None,
+                cwd=cwd,
                 encoding='UTF-8',
                 errors='backslashreplace',
             )
@@ -268,7 +307,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
             else:
                 output = str(exc.output or '')
 
-            msg = f'Error calling {cmd[0]}!\nStatus code: {exc.returncode}'
+            msg = f'Error running {cmd[0]}!\nStatus code: {exc.returncode}'
 
             if output:
                 msg = f'{msg}\nCommand output:\n\n    {output.replace("\n", "\n    ")}'
@@ -278,6 +317,173 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
             return False
 
         return True
+
+    def _win32_shortcut(self, target: str, source: str, cwd: str, shortcut_vbs: str|None=None) -> bool:
+        try:
+            check_output(
+                ['wscript', shortcut_vbs or join_path(cwd, "Shortcut.vbs"), target, source],
+                stderr=PIPE,
+                cwd=cwd,
+                encoding='UTF-8',
+                errors='backslashreplace',
+            )
+        except CalledProcessError as exc:
+            if isinstance(exc.stderr, bytes):
+                output = exc.stderr.decode(encoding='UTF-8', errors='backslashreplace')
+            elif isinstance(exc.stderr, str):
+                output = exc.stderr
+            else:
+                output = str(exc.output or '')
+
+            try:
+                with open(join_path(cwd, "stderr.txt"), "rt", encoding="UTF-16") as stderr_fp:
+                    stderr = stderr_fp.read()
+
+                if stderr:
+                    output = stderr
+            except FileNotFoundError:
+                pass
+
+            msg = f'Error creating shortcut to "{target}" at "{source}"!\nStatus code: {exc.returncode}'
+
+            if output:
+                msg = f'{msg}\nCommand output:\n\n    {output.replace("\n", "\n    ")}'
+
+            self.report({'ERROR'}, msg)
+
+            return False
+
+        return True
+
+    def _win32_execute(self, context: bpy.types.Context) -> set[OperatorReturnStatus]:
+        blender_bin = bpy.app.binary_path
+
+        install_menu: bool = self.install_menu
+        install_desktop_icon: bool = self.install_desktop_icon
+        install_mime: bool = self.install_mime
+        uninstall: bool = self.uninstall
+        version_suffix: bool = self.version_suffix
+
+        from winreg import (
+            HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, KEY_ENUMERATE_SUB_KEYS, REG_SZ, # pyright: ignore[reportAttributeAccessIssue]
+            CreateKey, OpenKey, CloseKey, DeleteKey, EnumKey, SetValueEx, QueryValueEx, # pyright: ignore[reportAttributeAccessIssue]
+         )
+
+        def winreg_delete_tree(hkey, subkey):
+            hsubkey = OpenKey(hkey, subkey, access=KEY_ENUMERATE_SUB_KEYS)
+            try:
+                while True:
+                    try:
+                        winreg_delete_tree(hsubkey, EnumKey(hsubkey, 0))
+                    except OSError:
+                        break
+                DeleteKey(hkey, subkey)
+            finally:
+                CloseKey(hsubkey)
+
+        prog_id = f'blender.{bpy.app.version[0]}.{bpy.app.version[1]}.{bpy.app.version[2]}' if version_suffix else 'blender'
+        pretty_name = f'Blender {bpy.app.version_string}' if version_suffix else 'Blender'
+
+        if install_mime:
+            if uninstall:
+                winreg_delete_tree(HKEY_CLASSES_ROOT, '.blend')
+                winreg_delete_tree(HKEY_CLASSES_ROOT, prog_id)
+            else:
+                hkey = CreateKey(HKEY_CLASSES_ROOT, '.blend')
+                try:
+                    SetValueEx(hkey, None, 0, REG_SZ, prog_id)
+                    SetValueEx(hkey, "Content Type", 0, REG_SZ, "application/x-blender")
+                finally:
+                    CloseKey(hkey)
+
+                hkey = CreateKey(HKEY_CLASSES_ROOT, prog_id)
+                try:
+                    SetValueEx(hkey, None, 0, REG_SZ, pretty_name)
+                    SetValueEx(hkey, "AppUserModelId", 0, REG_SZ, prog_id)
+                finally:
+                    CloseKey(hkey)
+
+                hkey = CreateKey(HKEY_CLASSES_ROOT, f'{prog_id}\\shell\\open')
+                try:
+                    SetValueEx(hkey, "FriendlyAppName", 0, REG_SZ, pretty_name)
+                finally:
+                    CloseKey(hkey)
+
+                hkey = CreateKey(HKEY_CLASSES_ROOT, f'{prog_id}\\shell\\open\\command')
+                try:
+                    SetValueEx(hkey, None, 0, REG_SZ, f'"{blender_bin}" "%1"')
+                finally:
+                    CloseKey(hkey)
+
+                hkey = CreateKey(HKEY_CLASSES_ROOT, f'{prog_id}\\DefaultIcon')
+                try:
+                    SetValueEx(hkey, None, 0, REG_SZ, f'"{blender_bin}", 1')
+                finally:
+                    CloseKey(hkey)
+
+        if install_menu or install_desktop_icon:
+            programs_dir_str = None
+            desktop_dir_str = None
+
+            hkey = OpenKey(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Folders")
+            try:
+                try:
+                    programs_dir_str, value_type = QueryValueEx(hkey, "Programs")
+                    if value_type != REG_SZ:
+                        programs_dir_str = None
+
+                except FileNotFoundError:
+                    programs_dir_str = None
+
+                try:
+                    desktop_dir_str, value_type = QueryValueEx(hkey, "Desktop")
+                    if value_type != REG_SZ:
+                        desktop_dir_str = None
+
+                except FileNotFoundError:
+                    desktop_dir_str = None
+            finally:
+                CloseKey(hkey)
+
+            if programs_dir_str is None:
+                programs_dir = Path.home().joinpath('AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+            else:
+                programs_dir = Path(programs_dir_str)
+
+            if desktop_dir_str is None:
+                desktop_dir = Path.home().joinpath('Desktop')
+            else:
+                desktop_dir = Path(desktop_dir_str)
+
+            tmpdir = TemporaryDirectory()
+
+            try:
+                shortcut_vbs = join_path(tmpdir.name, "Shortcut.vbs")
+                with open(shortcut_vbs, "wt") as tmp_fp:
+                    tmp_fp.write(_SHORTCUT_VBS)
+
+                link_name = f'{pretty_name}.lnk'
+
+                if install_menu:
+                    programs_dir.mkdir(parents=True, exist_ok=True)
+                    menu_entry_path = str(programs_dir.joinpath(link_name))
+                    if not self._win32_shortcut(shortcut_vbs=shortcut_vbs, target=blender_bin, source=menu_entry_path, cwd=tmpdir.name):
+                        return {'CANCELLED'}
+
+                if install_desktop_icon:
+                    desktop_dir.mkdir(parents=True, exist_ok=True)
+                    desktop_icon_path = str(desktop_dir.joinpath(link_name))
+                    if not self._win32_shortcut(shortcut_vbs=shortcut_vbs, target=blender_bin, source=desktop_icon_path, cwd=tmpdir.name):
+                        return {'CANCELLED'}
+
+            finally:
+                try:
+                    tmpdir.cleanup()
+                except PermissionError as exc:
+                    # no idea why this happens
+                    self.report({'WARNING'}, f'Error cleaning up temporary files: {exc}')
+
+        return {'FINISHED'}
 
     def _unsupported_os_execute(self, context: bpy.types.Context) -> set[OperatorReturnStatus]:
         system = _pretty_system()
@@ -291,12 +497,14 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
     elif os.name == 'posix':
         # Linux, *BSD
         execute = _xdg_execute
+    elif _SYSTEM == 'Windows':
+        # Windows
+        execute = _win32_execute
     else:
-        # TODO: Windows
         execute = _unsupported_os_execute
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[OperatorReturnStatus]:
-        if _SYSTEM == 'Darwin' or os.name != 'posix':
+        if _SYSTEM == 'Darwin' or (_SYSTEM != 'Windows' and os.name != 'posix'):
             return self._unsupported_os_execute(context)
 
         return context.window_manager.invoke_props_dialog(self)
