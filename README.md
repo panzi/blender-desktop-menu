@@ -11,4 +11,11 @@ Supported platforms:
 * [x] Windows **only tested via Wine on Linux!**
 * [ ] macOS
 
+<img srcset="menu.png 2x" alt="Screenshot of the menu">
+
+<img srcset="dialog.png 2x" alt="Screenshot of the dialog">
+
 Pull requests for Windows and macOS support are welcome.
+
+**Note:** On Linux you might need to restart your desktop environment to actually
+display the correct icon for the created shortcuts or file associations.

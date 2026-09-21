@@ -106,8 +106,8 @@ Add the Blender icon to your desktop icon theme. Needed for the menu entry to sh
 This might require a restart to become visible.""") # pyright: ignore[reportInvalidTypeForm]
     install_desktop_icon: bpy.props.BoolProperty(name="Icon on desktop", default=False) # pyright: ignore[reportInvalidTypeForm]
     install_mime: bpy.props.BoolProperty(name="File type association", default=True, description="Make Blender the default application for .blend files.") # pyright: ignore[reportInvalidTypeForm]
-    version_suffix: bpy.props.BoolProperty(name="Include version suffix", default=False, description="""\
-Adds blender version as a program name suffix, enabling multiple Blenders.
+    version_suffix: bpy.props.BoolProperty(name=f"Include version suffix", default=False, description=f"""\
+Adds Blender version as a program name suffix, enabling multiple Blenders: "Blender {bpy.app.version_string}"
 NOTE: If you want to uninstall the old menu entries you have to use the old Blender version or do it manually.""") # pyright: ignore[reportInvalidTypeForm]
     uninstall: bpy.props.BoolProperty(name="Uninstall", default=False, description="WARNING: Uninstalls selected options instead of installing them!") # pyright: ignore[reportInvalidTypeForm]
 
@@ -223,7 +223,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
                                     tmp_fp.write(exec_line)
                                     has_exec = True
                                 elif version_suffix and line.startswith('Name='):
-                                    tmp_fp.write(f'Name=Blender ({bpy.app.version_string})\n')
+                                    tmp_fp.write(f'Name=Blender {bpy.app.version_string}\n')
                                 else:
                                     tmp_fp.write(line)
 
@@ -469,11 +469,11 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
         return {'CANCELLED'}
 
     if _SYSTEM == 'Darwin':
-        # macOS als has os.name == 'posix'
+        # macOS also has os.name == 'posix'
         # TODO: macOS
         execute = _unsupported_os_execute
     elif os.name == 'posix':
-        # Linux, *BSD
+        # Linux (and *BSD?)
         execute = _xdg_execute
     elif _SYSTEM == 'Windows':
         # Windows
