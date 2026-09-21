@@ -11,9 +11,9 @@ Supported platforms:
 * [x] Windows **only tested via Wine on Linux!**
 * [ ] macOS
 
-<img srcset="menu.png 2x" alt="Screenshot of the menu">
+<img src="menu.png" srcset="menu.png 2x" alt="Screenshot of the menu">
 
-<img srcset="dialog.png 2x" alt="Screenshot of the dialog">
+<img src="dialog.png" srcset="dialog.png 2x" alt="Screenshot of the dialog">
 
 Pull requests for Windows and macOS support are welcome.
 
