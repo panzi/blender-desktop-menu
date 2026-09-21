@@ -2,7 +2,8 @@
 
 Add-on that can install or uninstall a launcher menu entry, Desktop icon, and
 file type associations for the currently running Blender. This is handy if you
-just unzipped Blender from the download and still want these things enabled.
+just unzipped Blender from a downloaded archive, but still want these things
+enabled.
 
 Supported platforms:
 

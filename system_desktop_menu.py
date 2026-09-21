@@ -61,15 +61,12 @@ _MIME_XML = '''\
 _SHORTCUT_VBS = '''\
 On Error Resume Next
 
-Set FSO = CreateObject("Scripting.FileSystemObject")
-Set StdErr = FSO.CreateTextFile("stderr.txt", True, True)
-
 If WScript.Arguments.Count <> 2 Then
-    StdErr.WriteLine("Error: Illegal number of arguments.")
-    StdErr.Close()
+    WScript.Echo("Error: Illegal number of arguments.")
     WScript.Quit(1)
 End If
 
+Set FSO = CreateObject("Scripting.FileSystemObject")
 TargetPath = FSO.GetAbsolutePathName(WScript.Arguments(0))
 WorkingDirectory = FSO.GetParentFolderName(TargetPath)
 Set shortcut = CreateObject("WScript.Shell").CreateShortcut(WScript.Arguments(1))
@@ -78,18 +75,15 @@ shortcut.WorkingDirectory = WorkingDirectory
 shortcut.Save()
 
 If Err.Number <> 0 Then
-    StdErr.WriteLine("Error: " & Err.Number)
+    WScript.Echo("Error: " & Err.Number)
     If Err.Description <> "" Then
-        StdErr.WriteLine(Err.Description)
+        WScript.Echo("Description: " & Err.Description)
     End If
     If Err.Source <> "" Then
-        StdErr.WriteLine(Err.Source)
+        WScript.Echo("Source: " & Err.Source)
     End If
-    StdErr.Close()
     WScript.Quit(1)
 End If
-
-StdErr.Close()
 '''
 
 _SYSTEM = platform.system()
@@ -310,7 +304,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
             msg = f'Error running {cmd[0]}!\nStatus code: {exc.returncode}'
 
             if output:
-                msg = f'{msg}\nCommand output:\n\n    {output.replace("\n", "\n    ")}'
+                msg = f'{msg}\nCommand output:\n    {output.replace("\n", "\n    ")}'
 
             self.report({'ERROR'}, msg)
 
@@ -318,36 +312,20 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
 
         return True
 
-    def _win32_shortcut(self, target: str, source: str, cwd: str, shortcut_vbs: str|None=None) -> bool:
+    def _win32_shortcut(self, target: str, source: str, cwd: str, shortcut_vbs: str) -> bool:
         try:
             check_output(
-                ['wscript', shortcut_vbs or join_path(cwd, "Shortcut.vbs"), target, source],
-                stderr=PIPE,
+                ['cscript', '/nologo', shortcut_vbs, target, source],
                 cwd=cwd,
                 encoding='UTF-8',
                 errors='backslashreplace',
             )
         except CalledProcessError as exc:
-            if isinstance(exc.stderr, bytes):
-                output = exc.stderr.decode(encoding='UTF-8', errors='backslashreplace')
-            elif isinstance(exc.stderr, str):
-                output = exc.stderr
-            else:
-                output = str(exc.output or '')
-
-            try:
-                with open(join_path(cwd, "stderr.txt"), "rt", encoding="UTF-16") as stderr_fp:
-                    stderr = stderr_fp.read()
-
-                if stderr:
-                    output = stderr
-            except FileNotFoundError:
-                pass
-
-            msg = f'Error creating shortcut to "{target}" at "{source}"!\nStatus code: {exc.returncode}'
+            output = str(exc.output or '')
+            msg = f'Error creating shortcut to "{target}" at "{source}"!'
 
             if output:
-                msg = f'{msg}\nCommand output:\n\n    {output.replace("\n", "\n    ")}'
+                msg = f'{msg}\nCommand output:\n    {output.replace("\n", "\n    ")}'
 
             self.report({'ERROR'}, msg)
 
