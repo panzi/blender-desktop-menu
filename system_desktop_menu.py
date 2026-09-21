@@ -56,9 +56,10 @@ _MIME_XML = '''\
 </mime-type>
 '''
 
+_SYSTEM = platform.system()
+
 def _pretty_system():
-    system = platform.system()
-    return 'macOS' if system == 'Darwin' else system
+    return 'macOS' if _SYSTEM == 'Darwin' else _SYSTEM
 
 class SystemDesktopMenu(bpy.types.Operator):
     """Add Blender to your desktop"""
@@ -69,7 +70,8 @@ class SystemDesktopMenu(bpy.types.Operator):
 Add Blender to your program launcher menu, file type associactions, and/or as a desktop icon."""
 
     install_menu: bpy.props.BoolProperty(name="Launcher menu entry", default=True) # pyright: ignore[reportInvalidTypeForm]
-    install_icon: bpy.props.BoolProperty(name="Blender icon", default=True, description="""\
+    if os.name == 'posix':
+        install_icon: bpy.props.BoolProperty(name="Blender icon", default=True, description="""\
 Add the Blender icon to your desktop icon theme. Needed for the menu entry to show the correct icon.
 This might require a restart to become visible.""") # pyright: ignore[reportInvalidTypeForm]
     install_desktop_icon: bpy.props.BoolProperty(name="Icon on desktop", default=False) # pyright: ignore[reportInvalidTypeForm]
@@ -105,24 +107,27 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
         uninstall: bool = self.uninstall
         version_suffix: bool = self.version_suffix
 
-        xdg_desktop_menu = which('xdg-desktop-menu')
-        xdg_desktop_icon = which('xdg-desktop-icon')
-        xdg_mime = which('xdg-mime')
+        xdg_desktop_menu: str|None = None
+        xdg_desktop_icon: str|None = None
+        xdg_mime: str|None = None
 
         if install_icon:
+            xdg_icon_ressource = which('xdg-icon-resource')
             if not blender_svg.exists():
                 self.report({'ERROR'}, 'blender.svg icon file is missing!')
                 return {'CANCELLED'}
+        else:
+            xdg_icon_ressource = None
 
-        if install_menu and xdg_desktop_menu is None:
+        if install_menu and (xdg_desktop_menu := which('xdg-desktop-menu')) is None:
             self._xdg_tool_not_found('xdg-desktop-menu')
             return {'CANCELLED'}
 
-        if install_desktop_icon and xdg_desktop_icon is None:
+        if install_desktop_icon and (xdg_desktop_icon := which('xdg-desktop-icon')) is None:
             self._xdg_tool_not_found('xdg-desktop-icon')
             return {'CANCELLED'}
 
-        if install_mime and xdg_mime is None:
+        if install_mime and (xdg_mime := which('xdg-mime')) is None:
             self._xdg_tool_not_found('xdg-mime')
             return {'CANCELLED'}
 
@@ -159,6 +164,14 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
                     icon_dir.mkdir(parents=True, exist_ok=True)
                     copy(blender_svg, icon_dir.joinpath('blender.svg'))
 
+                if xdg_icon_ressource is not None:
+                    # Icons *can* be SVG, but xdg-icon-ressource install only accepts PNG or XPM.
+                    # So instead we just manually copy/delete the icon and run xdg-icon-ressource forceupdate.
+                    if not self._run([xdg_icon_ressource, 'forceupdate', '--theme', 'hicolor', '--mode', 'user']):
+                        return {'CANCELLED'}
+                else:
+                    self.report({'INFO'}, 'xdg-icon-ressource not found. You might need to refresh your icon theme through your desktop environment.')
+
                 things.append('icon')
 
             if install_menu or install_desktop_icon or install_mime:
@@ -192,7 +205,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
                 action = 'uninstall' if uninstall else 'install'
 
                 if install_menu and xdg_desktop_menu is not None:
-                    if not self._run([xdg_desktop_menu, action, '--novendor', tmp_blender_desktop], path=PATH):
+                    if not self._run([xdg_desktop_menu, action, '--mode', 'user', '--novendor', tmp_blender_desktop], path=PATH):
                         return {'CANCELLED'}
 
                     things.append('desktop menu entry')
@@ -210,10 +223,10 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
                         tmp_fp.write(_MIME_XML)
 
                     if uninstall:
-                        if not self._run([xdg_mime, 'uninstall', tmp_mime], path=PATH):
+                        if not self._run([xdg_mime, 'uninstall', '--mode', 'user', tmp_mime], path=PATH):
                             return {'CANCELLED'}
                     else:
-                        if not self._run([xdg_mime, 'install', '--novendor', tmp_mime], path=PATH):
+                        if not self._run([xdg_mime, 'install', '--mode', 'user', '--novendor', tmp_mime], path=PATH):
                             return {'CANCELLED'}
 
                         if not self._run([xdg_mime, 'default', tmp_blender_desktop, 'application/x-blender'], path=PATH):
@@ -271,13 +284,21 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
         self.report({'ERROR'}, f'Currently only Linux with installed XDG tools is supported. Your system is {system}.')
         return {'CANCELLED'}
 
-    if os.name == 'posix':
+    if _SYSTEM == 'Darwin':
+        # macOS als has os.name == 'posix'
+        # TODO: macOS
+        execute = _unsupported_os_execute
+    elif os.name == 'posix':
+        # Linux, *BSD
         execute = _xdg_execute
     else:
-        # TODO: Windows and macOS (Darwin)
+        # TODO: Windows
         execute = _unsupported_os_execute
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[OperatorReturnStatus]:
+        if _SYSTEM == 'Darwin' or os.name != 'posix':
+            return self._unsupported_os_execute(context)
+
         return context.window_manager.invoke_props_dialog(self)
 
 def menu_func(self, context) -> None:
