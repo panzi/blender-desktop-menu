@@ -58,6 +58,10 @@ _MIME_XML = '''\
 </mime-type>
 '''
 
+# TODO: Do this differently once cscript is really deprecated and removed from Windows.
+# Using win32com would be easy, but it is not available in Blender.
+# See: https://stackoverflow.com/questions/25970858/python-win32com-createshortcut-key-for-my-application
+# See also: https://timgolden.me.uk/python/win32_how_do_i/create-a-shortcut.html
 _SHORTCUT_VBS = '''\
 On Error Resume Next
 
@@ -87,9 +91,7 @@ End If
 '''
 
 _SYSTEM = platform.system()
-
-def _pretty_system():
-    return 'macOS' if _SYSTEM == 'Darwin' else _SYSTEM
+_PRETTY_SYSTEM = 'macOS' if _SYSTEM == 'Darwin' else _SYSTEM
 
 class SystemDesktopMenu(bpy.types.Operator):
     """Add Blender to your desktop"""
@@ -112,11 +114,10 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
     uninstall: bpy.props.BoolProperty(name="Uninstall", default=False, description="WARNING: Uninstalls selected options instead of installing them!") # pyright: ignore[reportInvalidTypeForm]
 
     def _xdg_tool_not_found(self, tool: str) -> None:
-        system = _pretty_system()
-        if system == 'Linux':
+        if _PRETTY_SYSTEM == 'Linux':
             self.report({'ERROR'}, f'{tool} not found. You need to install XDG tools.')
         else:
-            self.report({'ERROR'}, f'{tool} not found. Currently only Linux with installed XDG tools is supported. Your system is {system}.')
+            self.report({'ERROR'}, f'{tool} not found. Currently only Linux with installed XDG tools is supported. Your system is {_PRETTY_SYSTEM}.')
 
     def _show_info(self, message: str) -> None:
         def draw_msg(self, context):
@@ -464,8 +465,7 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
         return {'FINISHED'}
 
     def _unsupported_os_execute(self, context: bpy.types.Context) -> set[OperatorReturnStatus]:
-        system = _pretty_system()
-        self.report({'ERROR'}, f'Currently only Linux with installed XDG tools is supported. Your system is {system}.')
+        self.report({'ERROR'}, f'Currently only Linux with installed XDG tools is supported. Your system is {_PRETTY_SYSTEM}.')
         return {'CANCELLED'}
 
     if _SYSTEM == 'Darwin':
