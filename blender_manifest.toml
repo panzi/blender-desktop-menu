@@ -11,7 +11,7 @@ blender_version_min = "4.2.0"
 website = "https://github.com/panzi/blender-desktop-menu#readme"
 
 [permissions]
-files = "Create files and execute scripts"
+files = "Create and delete files"
 
 [build]
 paths_exclude_pattern = [

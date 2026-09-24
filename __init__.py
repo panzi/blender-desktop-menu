@@ -58,38 +58,6 @@ _MIME_XML = '''\
 </mime-type>
 '''
 
-# TODO: Do this differently once cscript is really deprecated and removed from Windows.
-# Using win32com would be easy, but it is not available in Blender.
-# See: https://stackoverflow.com/questions/25970858/python-win32com-createshortcut-key-for-my-application
-# See also: https://timgolden.me.uk/python/win32_how_do_i/create-a-shortcut.html
-_SHORTCUT_VBS = '''\
-On Error Resume Next
-
-If WScript.Arguments.Count <> 2 Then
-    WScript.Echo("Error: Illegal number of arguments.")
-    WScript.Quit(1)
-End If
-
-Set FSO = CreateObject("Scripting.FileSystemObject")
-TargetPath = FSO.GetAbsolutePathName(WScript.Arguments(0))
-WorkingDirectory = FSO.GetParentFolderName(TargetPath)
-Set shortcut = CreateObject("WScript.Shell").CreateShortcut(WScript.Arguments(1))
-shortcut.TargetPath = TargetPath
-shortcut.WorkingDirectory = WorkingDirectory
-shortcut.Save()
-
-If Err.Number <> 0 Then
-    WScript.Echo("Error: " & Err.Number)
-    If Err.Description <> "" Then
-        WScript.Echo("Description: " & Err.Description)
-    End If
-    If Err.Source <> "" Then
-        WScript.Echo("Source: " & Err.Source)
-    End If
-    WScript.Quit(1)
-End If
-'''
-
 _SYSTEM = platform.system()
 _PRETTY_SYSTEM = 'macOS' if _SYSTEM == 'Darwin' else _SYSTEM
 
@@ -313,27 +281,6 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
 
         return True
 
-    def _win32_shortcut(self, target: str, source: str, cwd: str, shortcut_vbs: str) -> bool:
-        try:
-            check_output(
-                ['cscript', '/nologo', shortcut_vbs, target, source],
-                cwd=cwd,
-                encoding='UTF-8',
-                errors='backslashreplace',
-            )
-        except CalledProcessError as exc:
-            output = str(exc.output or '')
-            msg = f'Error creating shortcut to "{target}" at "{source}"!'
-
-            if output:
-                msg = f'{msg}\nCommand output:\n    {output.replace("\n", "\n    ")}'
-
-            self.report({'ERROR'}, msg)
-
-            return False
-
-        return True
-
     def _win32_execute(self, context: bpy.types.Context) -> set[OperatorReturnStatus]:
         blender_bin = bpy.app.binary_path
 
@@ -434,33 +381,44 @@ NOTE: If you want to uninstall the old menu entries you have to use the old Blen
             else:
                 desktop_dir = Path(desktop_dir_str)
 
-            tmpdir = TemporaryDirectory()
+            if install_menu or install_desktop_icon:
+                from .win32_shortcut import (
+                    S_OK, S_FALSE,
+                    CoInitialize, CoUninitialize,
+                    create_shortcut, get_hresult_message,
+                )
 
-            try:
-                shortcut_vbs = join_path(tmpdir.name, "Shortcut.vbs")
-                with open(shortcut_vbs, "wt") as tmp_fp:
-                    tmp_fp.write(_SHORTCUT_VBS)
+                blender_dir = str(Path(blender_bin).parent)
 
-                link_name = f'{pretty_name}.lnk'
+                init_res = CoInitialize(None)
+                if init_res not in (S_OK, S_FALSE):
+                    self.report({'ERROR'}, f'Error initializing Win32 COM: {init_res:#x} {get_hresult_message(init_res)}')
+                    return {'CANCELLED'}
 
-                if install_menu:
-                    programs_dir.mkdir(parents=True, exist_ok=True)
-                    menu_entry_path = str(programs_dir.joinpath(link_name))
-                    if not self._win32_shortcut(shortcut_vbs=shortcut_vbs, target=blender_bin, source=menu_entry_path, cwd=tmpdir.name):
-                        return {'CANCELLED'}
-
-                if install_desktop_icon:
-                    desktop_dir.mkdir(parents=True, exist_ok=True)
-                    desktop_icon_path = str(desktop_dir.joinpath(link_name))
-                    if not self._win32_shortcut(shortcut_vbs=shortcut_vbs, target=blender_bin, source=desktop_icon_path, cwd=tmpdir.name):
-                        return {'CANCELLED'}
-
-            finally:
                 try:
-                    tmpdir.cleanup()
-                except PermissionError as exc:
-                    # no idea why this happens
-                    self.report({'WARNING'}, f'Error cleaning up temporary files: {exc}')
+                    link_name = f'{pretty_name}.lnk'
+
+                    if install_menu:
+                        programs_dir.mkdir(parents=True, exist_ok=True)
+                        menu_entry_path = str(programs_dir.joinpath(link_name))
+                        try:
+                            create_shortcut(target=blender_bin, linkname=menu_entry_path, working_dir=blender_dir)
+                        except Exception as exc:
+                            self.report({'ERROR'}, f'Error creating launcher menu entry: {exc}')
+                            return {'CANCELLED'}
+
+                    if install_desktop_icon:
+                        desktop_dir.mkdir(parents=True, exist_ok=True)
+                        desktop_icon_path = str(desktop_dir.joinpath(link_name))
+                        try:
+                            create_shortcut(target=blender_bin, linkname=desktop_icon_path, working_dir=blender_dir)
+                        except Exception as exc:
+                            self.report({'ERROR'}, f'Error creating desktop icon: {exc}')
+                            return {'CANCELLED'}
+
+                finally:
+                    if init_res == S_OK:
+                        CoUninitialize()
 
         return {'FINISHED'}
 
