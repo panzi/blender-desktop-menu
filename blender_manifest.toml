@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "system_desktop_menu"
-version = "1.0.0"
+version = "1.1.0"
 name = "Lancher Entry and Desktop Icon"
 tagline = "Launcher menu, Desktop icon, and file associations"
 maintainer = "Mathias Panzenböck"
